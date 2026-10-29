@@ -1310,7 +1310,7 @@ int RunMakeExamples(int argc, char** argv) {
       probe_bam = absl::GetFlag(FLAGS_reads_tumor);
     }
     if (!probe_bam.empty()) {
-      auto sam_or = nucleus::SamReader::FromFile(probe_bam, sam_opts);
+      auto sam_or = nucleus::SamReader::FromFile(probe_bam, ref_path, sam_opts);
       CHECK(sam_or.ok()) << "Failed to open BAM: " << probe_bam;
       auto tmp_reader = std::move(sam_or.ValueOrDie());
       std::string sn = absl::GetFlag(FLAGS_sample_name);
@@ -1453,7 +1453,7 @@ int RunMakeExamples(int argc, char** argv) {
       ctx[s].skip_output = so.skip_output_generation();
       for (int o : so.order()) ctx[s].order.push_back(o);
       if (so.reads_filenames_size() > 0) {
-        auto sr_or = nucleus::SamReader::FromFile(so.reads_filenames(0),
+        auto sr_or = nucleus::SamReader::FromFile(so.reads_filenames(0), ref_path,
                                                     sam_opts);
         CHECK(sr_or.ok()) << "thread " << tid << " " << ctx[s].role
                            << ": BAM reopen failed: " << so.reads_filenames(0);
@@ -1942,7 +1942,7 @@ int RunMakeExamples(int argc, char** argv) {
     CHECK(t_ref_or.ok()) << "thread " << tid << ": ref reopen failed";
     auto ref_reader = std::move(t_ref_or.ValueOrDie());
 
-    auto t_sam_or = nucleus::SamReader::FromFile(reads_path, sam_opts);
+    auto t_sam_or = nucleus::SamReader::FromFile(reads_path, ref_path, sam_opts);
     CHECK(t_sam_or.ok()) << "thread " << tid << ": BAM reopen failed";
     auto sam_reader = std::move(t_sam_or.ValueOrDie());
 
