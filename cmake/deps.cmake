@@ -1,6 +1,8 @@
 # deps.cmake — All external C++ dependencies (no TensorFlow).
 #
-# All major deps use Homebrew (already installed) via find_package.
+# All major deps come from Homebrew (default) or from one prefix given as
+# DV_DEPS_PREFIX (cmake cache variable or environment), e.g. a conda-forge
+# environment: htslib libabseil libprotobuf re2 libboost-headers libdeflate.
 # Only libssw (not in Homebrew) uses FetchContent.
 #
 # Homebrew versions on this machine:
@@ -16,27 +18,54 @@ set(FETCHCONTENT_QUIET OFF)
 set(FETCHCONTENT_UPDATES_DISCONNECTED ON)
 
 # ---------------------------------------------------------------------------
-# htslib 1.18 — Homebrew (avoids autoconf complexity on macOS)
+# Dependency prefixes: one prefix for all (DV_DEPS_PREFIX, e.g. a conda
+# environment with htslib, libabseil, libprotobuf, re2, libboost-headers,
+# libdeflate) or, when it is unset, Homebrew's per-package prefixes.
 # ---------------------------------------------------------------------------
-find_program(BREW_EXECUTABLE brew REQUIRED)
-execute_process(
-  COMMAND ${BREW_EXECUTABLE} --prefix htslib
-  OUTPUT_VARIABLE HTSLIB_PREFIX
-  OUTPUT_STRIP_TRAILING_WHITESPACE
-)
-if(NOT HTSLIB_PREFIX)
-  message(FATAL_ERROR "htslib not found — run: brew install htslib")
+set(DV_DEPS_PREFIX "$ENV{DV_DEPS_PREFIX}" CACHE PATH
+    "single prefix holding htslib, abseil, protobuf, re2, boost and libdeflate (empty: use Homebrew)")
+if(DV_DEPS_PREFIX)
+  if(NOT IS_DIRECTORY "${DV_DEPS_PREFIX}")
+    message(FATAL_ERROR "DV_DEPS_PREFIX is not a directory: ${DV_DEPS_PREFIX}")
+  endif()
+  message(STATUS "deps prefix: ${DV_DEPS_PREFIX}")
+else()
+  find_program(BREW_EXECUTABLE brew REQUIRED)
 endif()
 
+# dv_dep_prefix(<out-var> <homebrew-formula>): DV_DEPS_PREFIX or `brew --prefix <formula>`.
+function(dv_dep_prefix out_var formula)
+  if(DV_DEPS_PREFIX)
+    set(${out_var} "${DV_DEPS_PREFIX}" PARENT_SCOPE)
+    return()
+  endif()
+  execute_process(
+    COMMAND ${BREW_EXECUTABLE} --prefix ${formula}
+    OUTPUT_VARIABLE prefix
+    OUTPUT_STRIP_TRAILING_WHITESPACE
+  )
+  if(NOT prefix)
+    message(FATAL_ERROR "${formula} not found — run: brew install ${formula} (or set DV_DEPS_PREFIX)")
+  endif()
+  set(${out_var} "${prefix}" PARENT_SCOPE)
+endfunction()
+
+# ---------------------------------------------------------------------------
+# htslib 1.18 — Homebrew (avoids autoconf complexity on macOS)
+# ---------------------------------------------------------------------------
+dv_dep_prefix(HTSLIB_PREFIX htslib)
+
 add_library(htslib::htslib STATIC IMPORTED)
-find_library(HTSLIB_LIB NAMES libhts.a hts PATHS "${HTSLIB_PREFIX}/lib" REQUIRED)
+find_library(HTSLIB_LIB NAMES libhts.a hts PATHS "${HTSLIB_PREFIX}/lib" NO_DEFAULT_PATH REQUIRED)
+dv_dep_prefix(DEFLATE_PREFIX libdeflate)
+find_library(DEFLATE_LIB NAMES libdeflate.a deflate PATHS "${DEFLATE_PREFIX}/lib" NO_DEFAULT_PATH REQUIRED)
 set_target_properties(htslib::htslib PROPERTIES
   IMPORTED_LOCATION "${HTSLIB_LIB}"
   INTERFACE_INCLUDE_DIRECTORIES "${HTSLIB_PREFIX}/include"
 )
 target_link_libraries(htslib::htslib INTERFACE
   "-framework CoreFoundation"
-  /opt/homebrew/lib/libdeflate.a
+  "${DEFLATE_LIB}"
   z bz2 lzma curl
 )
 message(STATUS "htslib: ${HTSLIB_LIB}")
@@ -44,14 +73,7 @@ message(STATUS "htslib: ${HTSLIB_LIB}")
 # ---------------------------------------------------------------------------
 # abseil — Homebrew (no FetchContent; avoids hash management)
 # ---------------------------------------------------------------------------
-execute_process(
-  COMMAND ${BREW_EXECUTABLE} --prefix abseil
-  OUTPUT_VARIABLE ABSL_PREFIX
-  OUTPUT_STRIP_TRAILING_WHITESPACE
-)
-if(NOT ABSL_PREFIX)
-  message(FATAL_ERROR "abseil not found — run: brew install abseil")
-endif()
+dv_dep_prefix(ABSL_PREFIX abseil)
 list(APPEND CMAKE_PREFIX_PATH "${ABSL_PREFIX}")
 find_package(absl REQUIRED)
 message(STATUS "abseil: ${ABSL_PREFIX}")
@@ -59,14 +81,7 @@ message(STATUS "abseil: ${ABSL_PREFIX}")
 # ---------------------------------------------------------------------------
 # protobuf — Homebrew (no FetchContent; avoids hash management)
 # ---------------------------------------------------------------------------
-execute_process(
-  COMMAND ${BREW_EXECUTABLE} --prefix protobuf
-  OUTPUT_VARIABLE PROTOBUF_PREFIX
-  OUTPUT_STRIP_TRAILING_WHITESPACE
-)
-if(NOT PROTOBUF_PREFIX)
-  message(FATAL_ERROR "protobuf not found — run: brew install protobuf")
-endif()
+dv_dep_prefix(PROTOBUF_PREFIX protobuf)
 list(APPEND CMAKE_PREFIX_PATH "${PROTOBUF_PREFIX}")
 find_package(protobuf REQUIRED)
 message(STATUS "protobuf: ${PROTOBUF_PREFIX}")
@@ -120,16 +135,9 @@ set(DV_LIBSSW_DIR "${libssw_SOURCE_DIR}" CACHE INTERNAL "libssw source root")
 # ---------------------------------------------------------------------------
 # re2 — Homebrew
 # ---------------------------------------------------------------------------
-execute_process(
-  COMMAND ${BREW_EXECUTABLE} --prefix re2
-  OUTPUT_VARIABLE RE2_PREFIX
-  OUTPUT_STRIP_TRAILING_WHITESPACE
-)
-if(NOT RE2_PREFIX)
-  message(FATAL_ERROR "re2 not found — run: brew install re2")
-endif()
+dv_dep_prefix(RE2_PREFIX re2)
 add_library(re2::re2 STATIC IMPORTED)
-find_library(RE2_LIB NAMES libre2.a re2 PATHS "${RE2_PREFIX}/lib" REQUIRED)
+find_library(RE2_LIB NAMES libre2.a re2 PATHS "${RE2_PREFIX}/lib" NO_DEFAULT_PATH REQUIRED)
 set_target_properties(re2::re2 PROPERTIES
   IMPORTED_LOCATION "${RE2_LIB}"
   INTERFACE_INCLUDE_DIRECTORIES "${RE2_PREFIX}/include"
@@ -139,14 +147,7 @@ message(STATUS "re2: ${RE2_LIB}")
 # ---------------------------------------------------------------------------
 # Boost — Homebrew (for debruijn_graph.h in realigner/)
 # ---------------------------------------------------------------------------
-execute_process(
-  COMMAND ${BREW_EXECUTABLE} --prefix boost
-  OUTPUT_VARIABLE BOOST_PREFIX
-  OUTPUT_STRIP_TRAILING_WHITESPACE
-)
-if(NOT BOOST_PREFIX)
-  message(FATAL_ERROR "boost not found — run: brew install boost")
-endif()
+dv_dep_prefix(BOOST_PREFIX boost)
 message(STATUS "boost: ${BOOST_PREFIX}")
 set(BOOST_INCLUDE_DIR "${BOOST_PREFIX}/include" CACHE INTERNAL "")
 
